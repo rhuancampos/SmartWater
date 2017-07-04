@@ -7,11 +7,13 @@
 boolean match = false;          // Inicia cartão como falso
 boolean programMode = false;    // Inicia o modo programador como falso
 boolean replaceMaster = false;
-boolean trocarGarrafao = false; // Variável para uso do sensor de nível de água
+
 boolean condicaoPRI = false;
 
 int successRead;
 float ultra;
+int valor;
+const int potenciometro = 0
 
 byte storedCard[4];   // Armazena uma ID lida da EEPROM
 byte readCard[4];   // Armazena a identificação lida a partir do módulo RFID
@@ -22,7 +24,7 @@ byte masterCard[4];   // Armazena ID do cartão master lido da EEPROM
 #define TRIG_PIN 5  //Pino do Sensor Ultrassônico
 #define ECHO_PIN 6  //Pino do Sensor Ultrassônico
 
-#define MNA_PIN 2 //Medidor de nível de água
+//#define MNA_PIN 2 //Medidor de nível de água
 #define AR_PIN 4 //Relé
 #define wipeB 3 //Apagando memória de credenciais
 
@@ -76,6 +78,11 @@ void setup() {
 		PrintLcd("MASTER definido", 0, true);
 		
 		}
+		
+	for ( int i = 0; i < 4; i++ ) {          // Ler cartão master da EEPROM
+		masterCard[i] = EEPROM.read(2 + i);    // Salva na variável mastercard
+		Serial.print(masterCard[i], HEX);
+	}
 	  
 	  PrintLcd("Aproxime cartao", 0, true);
 	  
@@ -83,10 +90,6 @@ void setup() {
 
 	
 void loop () {
-	if(!checkLevelAgua()){
-		PrintLcd("AGUA ACABANDO", 1, false);
-		Serial.println("true");
-		}
 	
 	do {
 		successRead = getID();  // Define successRead para 1 quando obter leitura do leitor caso contrário 0
@@ -184,7 +187,7 @@ void loop () {
 }
 
 int getID() {
-	  // Preparando-se para a leitura de PICCs
+
 	  if ( ! mfrc522.PICC_IsNewCardPresent()) { //Se um novo PICC colocado no leitor RFID continuar
 		return 0;
 	  }
@@ -194,6 +197,7 @@ int getID() {
 	  // Só é compatível a leitura de cartões de 4bytes!
 	  for (int i = 0; i < 4; i++) {  //
 		readCard[i] = mfrc522.uid.uidByte[i];
+		Serial.print(readCard[i], HEX);
 	  }
 	  
 	  mfrc522.PICC_HaltA(); // para leitura
@@ -258,19 +262,17 @@ void deleteID( byte a[] ) {
 }
 
 boolean checkTwo ( byte a[], byte b[] ) {
-  if ( a[0] != NULL )       // Certifique-se de que há algo na matriz primeiro
-    match = true;       // Suponha que eles correspondam no início
+  if ( a[0] != NULL ){
+	  return false;
+	  }  	  // Certifique-se de que há algo na matriz primeiro
+
 	
   for ( int k = 0; k < 4; k++ ) {   
-    if ( a[k] != b[k] )     // Se a! = B então defina match = false, um falha, todos falham
-      match = false;
-  }
-  
-	if (match) {     
-		return true;     
-	} else {
-		return false;  
+    if ( a[k] != b[k] ){     // Se a! = B então defina match = false, um falha, todos falham
+      return false;
 	}
+  }
+  return true;
 }
 
 int findIDSLOT( byte find[] ) {
@@ -293,7 +295,7 @@ boolean findID( byte find[] ) {
 		if (checkTwo( find, storedCard )) {   // Verifique se o cartão armazenado leu da EEPROM
 		  return true;
 		  break; 
-		} else {}
+		}
 	  }
 	  return false;
 }
@@ -301,19 +303,22 @@ boolean findID( byte find[] ) {
 boolean isMaster( byte test[] ) {
 	  if ( checkTwo( test, masterCard ) ){
 		return true;
-	  } else{
+	  } else {
 		return false;
 	  }
 }
 
 boolean checkLevelAgua(){
-	if (digitalRead(MNA_PIN)) {       // Nível da água está baixo;
-		trocarGarrafao = true;      //Trocar garrafão;  
+	valor = analogRead(potenciometro);
+	valor = map(valor,0,1023,0,100);
+	Serial.print("/N");
+	Serial.println(valor);
+	
+	if (valor =< 40/*digitalRead(MNA_PIN)*/) {       // Nível da água está baixo
 		return true;
 	} else {                 // Nível da água está alto;
-		trocarGarrafao = false;       
 		return false;
-	}
+	} 
 }
 
 void liberaAgua(boolean condicao){
