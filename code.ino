@@ -7,13 +7,13 @@
 boolean match = false;          // Inicia cartão como falso
 boolean programMode = false;    // Inicia o modo programador como falso
 boolean replaceMaster = false;
-
-boolean condicaoPRI = false;
+boolean semagua = false;
+boolean block = false;
 
 int successRead;
+int valor; // Variável para saber a quantidade de pulsos
 float ultra;
-int valor;
-const int potenciometro = 0
+float vazaoagua; //Variável para armazenar o valor em L/min
 
 byte storedCard[4];   // Armazena uma ID lida da EEPROM
 byte readCard[4];   // Armazena a identificação lida a partir do módulo RFID
@@ -23,8 +23,7 @@ byte masterCard[4];   // Armazena ID do cartão master lido da EEPROM
 #define RST_PIN 9 //Pino do RFID
 #define TRIG_PIN 5  //Pino do Sensor Ultrassônico
 #define ECHO_PIN 6  //Pino do Sensor Ultrassônico
-
-//#define MNA_PIN 2 //Medidor de nível de água
+#define MNA_PIN 2 //Medidor de nível de água
 #define AR_PIN 4 //Relé
 #define wipeB 3 //Apagando memória de credenciais
 
@@ -33,10 +32,13 @@ Ultrasonic ultrasonic(TRIG_PIN,ECHO_PIN);
 LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
 
 void setup() {
-	  Serial.begin(9600);  
+	  Serial1.begin(115200);
+	  Serial2.begin(9600);  
 	  SPI.begin();  
 	  lcd.begin(16,2);  
 	  mfrc522.PCD_Init();    // Inicializar MFRC522 Hardware
+	  pinMode(MNA_PIN, INPUT);
+	  attachInterrupt(0, incrpulso, RISING);
 
 	  if (digitalRead(wipeB) == HIGH) {  // Quando botão pressionado pino deve ficar alto, botão conectado à 5V
 		
@@ -81,7 +83,7 @@ void setup() {
 		
 	for ( int i = 0; i < 4; i++ ) {          // Ler cartão master da EEPROM
 		masterCard[i] = EEPROM.read(2 + i);    // Salva na variável mastercard
-		Serial.print(masterCard[i], HEX);
+		Serial1.print(masterCard[i], HEX);
 	}
 	  
 	  PrintLcd("Aproxime cartao", 0, true);
@@ -91,96 +93,109 @@ void setup() {
 	
 void loop () {
 	
-	do {
-		successRead = getID();  // Define successRead para 1 quando obter leitura do leitor caso contrário 0
-		
-		if (digitalRead(wipeB) == HIGH) {
-			
-			PrintLcd("Botão de limpeza precionado", 0, true);
-
-			if (digitalRead(wipeB) == HIGH) {
-				EEPROM.write(1, 0);
-				PrintLcd ("EEPROM limpa", 0, true);			
-				PrintLcd("Reinicie placa", 1, false);
-				while (1);
-				}
+	while(Serial2.available()>0){
+      data = Serial2.read();
+        if(data == 'B') {
+			if (Serial2.read () == '1'){
+				block = true;
+			} else {
+				block = false
 			}
 		}
-		
-	while (!successRead);   //O programa fica aguardando uma leitura de cartão para prosseguir
+    }
 	
-	if (programMode) {
-		if (isMaster(readCard)) { //Se ler o cartão master, saia do modo programador
-			PrintLcd("Modo programacao", 0, true);
-			PrintLcd("Saindo", 1, false);
-			delay(500);
-			programMode = false;
-			return;
+	if (!block){
+		do {
+			successRead = getID();  // Define successRead para 1 quando obter leitura do leitor caso contrário 0
 			
-		} else {
-			if ( findID(readCard) ) { // Se o cartão digitalizado for conhecido, exclua-o
+			if (digitalRead(wipeB) == HIGH) {
 				
-				PrintLcd("Removendo cartao", 0, true);
-				deleteID(readCard);
-				PrintLcd("Aproxime cartao para remover ou add", 1, false);
-				
-				} else {                    //Se o cartão digitalizado não for conhecido adicione-o
-					PrintLcd("Adicionando cartao", 0, true);
-					writeID(readCard);
-					PrintLcd("Aproxime cartao para remover ou add", 1, false);
-				}
+				PrintLcd("Botão de limpeza precionado", 0, true);
 
+				if (digitalRead(wipeB) == HIGH) {
+					EEPROM.write(1, 0);
+					PrintLcd ("EEPROM limpa", 0, true);			
+					PrintLcd("Reinicie placa", 1, false);
+					while (1);
+					}
+				}
 			}
 			
-	} else {
-		if (isMaster(readCard)) {    // Se ler cartão master, entre no modo de programação
-			programMode = true;
-
-			PrintLcd("Modo programacao", 0, true);
-			PrintLcd("ATIVO", 1, false);
+		while (!successRead);   //O programa fica aguardando uma leitura de cartão para prosseguir
 		
-			int count = EEPROM.read(0);   // Leia o primeiro Byte da EEPROM que armazena o número de ID's na EEPROM
-			Serial.print(F("n = ")); 
-			Serial.print(count);
-
-		} else {
-			if ( findID(readCard) ) { // Veja se o cartão está na EEPROM
-				PrintLcd("Acesso permitido!",0, true);
-				ultra = ultrasonic.convert(ultrasonic.timing(), Ultrasonic::CM);
+		if (programMode) {
+			if (isMaster(readCard)) { //Se ler o cartão master, saia do modo programador
+				PrintLcd("Modo programacao", 0, true);
+				PrintLcd("Saindo", 1, false);
+				delay(500);
+				programMode = false;
+				return;
 				
-				if (ultra < 7.0){ //Liberar a água
-					liberaAgua (true);
-					PrintLcd("Torneira Aberta",1, false);
-					while(1){
-						ultra = ultrasonic.convert(ultrasonic.timing(), Ultrasonic::CM);
-						
-						if(ultra >= 7.0){   //Ao afastar o copo a água é fechada
-							break;
-						}
-					}
+			} else {
+				if ( findID(readCard) ) { // Se o cartão digitalizado for conhecido, exclua-o
 					
-					liberaAgua (false);
+					PrintLcd("Removendo cartao", 0, true);
+					deleteID(readCard);
+					PrintLcd("Aproxime cartao para remover ou add", 1, false);
+					
+					} else {                    //Se o cartão digitalizado não for conhecido adicione-o
+						PrintLcd("Adicionando cartao", 0, true);
+						writeID(readCard);
+						PrintLcd("Aproxime cartao para remover ou add", 1, false);
+					}
 
-					PrintLcd("Torneira Fechada", 1, false);
-					delay(2000);
-					
-					PrintLcd("Aproxime cartao", 0, true);
-					
-					if(!checkLevelAgua()){
-						PrintLcd("Agua acabando", 1, false);
-					}
-					
-				} else {
-				PrintLcd("Copo longe!", 0, true);
-				liberaAgua (false);
-				delay(2000);
-				PrintLcd("Aproxime cartao", 0, true);
 				}
-			} else {      // Usuário sem permissão
-				PrintLcd("Acesso negado!", 0,true);
-				liberaAgua (false);
-				delay(2000);
-				PrintLcd("Aproxime cartao", 0,true);
+				
+		} else {
+			if (isMaster(readCard)) {    // Se ler cartão master, entre no modo de programação
+				programMode = true;
+
+				PrintLcd("Modo programacao", 0, true);
+				PrintLcd("ATIVO", 1, false);
+			
+				int count = EEPROM.read(0);   // Leia o primeiro Byte da EEPROM que armazena o número de ID's na EEPROM
+				Serial1.print(F("n = ")); 
+				Serial1.print(count);
+
+			} else {
+				if ( findID(readCard) ) { // Veja se o cartão está na EEPROM
+					PrintLcd("Acesso permitido!",0, true);
+					ultra = ultrasonic.convert(ultrasonic.timing(), Ultrasonic::CM);
+					
+					if (ultra < 7.0){ //Liberar a água
+						liberaAgua (true);
+						PrintLcd("Torneira Aberta",1, false);
+						while(1){
+							ultra = ultrasonic.convert(ultrasonic.timing(), Ultrasonic::CM);
+							
+							if(ultra >= 7.0){   //Ao afastar o copo a água é fechada
+								break;
+							}
+						}
+						
+						liberaAgua (false);
+
+						PrintLcd("Torneira Fechada", 1, false);
+						delay(2000);
+						
+						PrintLcd("Aproxime cartao", 0, true);
+						
+						if(semagua){
+							PrintLcd("Agua acabando", 1, false);
+						}
+						
+					} else {
+					PrintLcd("Copo longe!", 0, true);
+					liberaAgua (false);
+					delay(2000);
+					PrintLcd("Aproxime cartao", 0, true);
+					}
+				} else {      // Usuário sem permissão
+					PrintLcd("Acesso negado!", 0,true);
+					liberaAgua (false);
+					delay(2000);
+					PrintLcd("Aproxime cartao", 0,true);
+				}
 			}
 		}
 	}
@@ -197,7 +212,7 @@ int getID() {
 	  // Só é compatível a leitura de cartões de 4bytes!
 	  for (int i = 0; i < 4; i++) {  //
 		readCard[i] = mfrc522.uid.uidByte[i];
-		Serial.print(readCard[i], HEX);
+		Serial1.print(readCard[i], HEX);
 	  }
 	  
 	  mfrc522.PICC_HaltA(); // para leitura
@@ -275,6 +290,8 @@ boolean checkTwo ( byte a[], byte b[] ) {
   return true;
 }
 
+//findIDSLOT procura a possição do cartão
+
 int findIDSLOT( byte find[] ) {
   int count = EEPROM.read(0);       // Leia o primeiro Byte da EEPROM
   for ( int i = 1; i <= count; i++ ) {    // Repetir uma vez para cada entrada EEPROM
@@ -309,12 +326,18 @@ boolean isMaster( byte test[] ) {
 }
 
 boolean checkLevelAgua(){
-	valor = analogRead(potenciometro);
-	valor = map(valor,0,1023,0,100);
-	Serial.print("/N");
-	Serial.println(valor);
 	
-	if (valor =< 40/*digitalRead(MNA_PIN)*/) {       // Nível da água está baixo
+	valor = 0; //Começa do 0 variável para contar os giros das pás internas,ek segundos
+	sei(); //liga interrupção
+	delay (2000); //Espera 2 segundos
+	cli(); //Desliga interrupção
+	
+	vazaoagua = valor / 5.5;
+	
+	Serial1.println("/N");
+	Serial1.println(valor);
+	
+	if (valor =< 40) {       // Nível da água está baixo
 		return true;
 	} else {                 // Nível da água está alto;
 		return false;
@@ -346,4 +369,8 @@ void PrintLcd(String texto, int linha, boolean clear){
 		lcd.setCursor(0, linha);
 	lcd.print(texto);
 	}
+}
+
+void incrpulso (){ 
+	valor++;
 }
